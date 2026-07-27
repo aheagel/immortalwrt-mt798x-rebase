@@ -23,7 +23,7 @@ jobs:
           find scripts/unlock/ -name "*.sh" -exec shellcheck --severity=warning {} +
 
       - name: Install ruff
-        run: pip install --quiet ruff
+        run: pip install --quiet 'ruff~=0.16.0'
 
       - name: ruff (unlock Python scripts)
         run: ruff check scripts/unlock/

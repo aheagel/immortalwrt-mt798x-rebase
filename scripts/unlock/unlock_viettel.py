@@ -15,6 +15,8 @@ Yêu cầu:
 
 import argparse
 import base64
+import binascii
+import contextlib
 import gzip
 import hashlib
 import hmac
@@ -92,7 +94,7 @@ def check_port(host, port, timeout=3):
         s.connect((host, port))
         s.close()
         return True
-    except Exception:
+    except OSError:
         return False
 
 
@@ -155,17 +157,17 @@ def _maybe_decode_config_from_rpc(resp) -> bytes | None:
     for s in candidates:
         try:
             raw = base64.b64decode(s, validate=False)
-            if _looks_like_config_bin(raw):
-                return raw
-        except Exception:
-            continue
+        except (binascii.Error, ValueError):
+            raw = None
+        if raw is not None and _looks_like_config_bin(raw):
+            return raw
         try:
             pad = "=" * (-len(s) % 4)
             raw = base64.b64decode(s + pad)
-            if _looks_like_config_bin(raw):
-                return raw
-        except Exception:
+        except (binascii.Error, ValueError):
             continue
+        if _looks_like_config_bin(raw):
+            return raw
     return None
 
 
@@ -198,7 +200,7 @@ def _download_via_post_router_methods(
                     else:
                         cfg = rpc_url.replace("router.cgi", "config.cgi")
                     return raw, cfg
-            except Exception as e:
+            except requests.RequestException as e:
                 if verbose:
                     print(f"    POST {m} error: {e}")
     return None, None
@@ -271,7 +273,7 @@ def download_config(ip: str, token: str, verbose: bool = False):
                 text_snip = body[:400].decode("utf-8", errors="replace")
 
                 strip = body.lstrip()
-                if strip.startswith(b"{") or strip.startswith(b"["):
+                if strip.startswith((b"{", b"[")):
                     last_hint = (
                         f"{qurl} HTTP {r.status_code} "
                         f"Content-Type={ct!r} JSON≈{text_snip[:320]}"
@@ -319,70 +321,66 @@ def download_config(ip: str, token: str, verbose: bool = False):
 def modify_config(config_bin, new_root_pw):
     orig_gzip = config_bin[32:]
     tar_bytes = gzip.decompress(orig_gzip)
-    orig_tar = tarfile.open(fileobj=io.BytesIO(tar_bytes))
-
     new_root_hash = make_md5_crypt(new_root_pw)
 
     new_tar_buf = io.BytesIO()
-    new_tar = tarfile.open(fileobj=new_tar_buf, mode="w")
+    with tarfile.open(fileobj=io.BytesIO(tar_bytes)) as orig_tar, \
+         tarfile.open(fileobj=new_tar_buf, mode="w") as new_tar:
+        for member in orig_tar.getmembers():
+            if not member.isfile():
+                new_tar.addfile(member)
+                continue
 
-    for member in orig_tar.getmembers():
-        if not member.isfile():
-            new_tar.addfile(member)
-            continue
+            data = orig_tar.extractfile(member).read()
 
-        data = orig_tar.extractfile(member).read()
+            if member.name == "etc/shadow":
+                lines = data.decode().split("\n")
+                new_lines = []
+                for line in lines:
+                    if line.startswith("root:"):
+                        parts = line.split(":")
+                        parts[1] = new_root_hash
+                        new_lines.append(":".join(parts))
+                    else:
+                        new_lines.append(line)
+                data = "\n".join(new_lines).encode()
 
-        if member.name == "etc/shadow":
-            lines = data.decode().split("\n")
-            new_lines = []
-            for line in lines:
-                if line.startswith("root:"):
-                    parts = line.split(":")
-                    parts[1] = new_root_hash
-                    new_lines.append(":".join(parts))
-                else:
-                    new_lines.append(line)
-            data = "\n".join(new_lines).encode()
+            elif member.name == "etc/passwd":
+                text = data.decode()
+                text = text.replace(
+                    "admin:x:301:301:admin:/var:/bin/false",
+                    "admin:x:301:301:admin:/var:/bin/ash",
+                )
+                data = text.encode()
 
-        elif member.name == "etc/passwd":
-            text = data.decode()
-            text = text.replace(
-                "admin:x:301:301:admin:/var:/bin/false",
-                "admin:x:301:301:admin:/var:/bin/ash",
-            )
-            data = text.encode()
+            elif member.name == "etc/config/console":
+                data = b"config console\n\toption enable '1'\n"
 
-        elif member.name == "etc/config/console":
-            data = b"config console\n\toption enable '1'\n"
+            elif member.name == "etc/config/telnet":
+                data = b"config telnet\n\toption enable '1'\n"
 
-        elif member.name == "etc/config/telnet":
-            data = b"config telnet\n\toption enable '1'\n"
+            elif member.name == "etc/config/dropbear":
+                data = (
+                    b"config dropbear\n"
+                    b"\toption PasswordAuth 'on'\n"
+                    b"\toption RootPasswordAuth 'on'\n"
+                    b"\toption Port '22'\n"
+                    b"\toption Enable '1'\n"
+                )
 
-        elif member.name == "etc/config/dropbear":
-            data = (
-                b"config dropbear\n"
-                b"\toption PasswordAuth 'on'\n"
-                b"\toption RootPasswordAuth 'on'\n"
-                b"\toption Port '22'\n"
-                b"\toption Enable '1'\n"
-            )
+            elif member.name == "etc/config/users":
+                text = data.decode()
+                text = text.replace("option enabled '0'", "option enabled '1'")
+                data = text.encode()
 
-        elif member.name == "etc/config/users":
-            text = data.decode()
-            text = text.replace("option enabled '0'", "option enabled '1'")
-            data = text.encode()
-
-        new_info = tarfile.TarInfo(name=member.name)
-        new_info.size = len(data)
-        new_info.mode = member.mode
-        new_info.uid = member.uid
-        new_info.gid = member.gid
-        new_info.mtime = member.mtime
-        new_info.type = member.type
-        new_tar.addfile(new_info, io.BytesIO(data))
-
-    new_tar.close()
+            new_info = tarfile.TarInfo(name=member.name)
+            new_info.size = len(data)
+            new_info.mode = member.mode
+            new_info.uid = member.uid
+            new_info.gid = member.gid
+            new_info.mtime = member.mtime
+            new_info.type = member.type
+            new_tar.addfile(new_info, io.BytesIO(data))
 
     gzip_buf = io.BytesIO()
     with gzip.GzipFile(fileobj=gzip_buf, mode="wb", mtime=0) as gz:
@@ -417,8 +415,8 @@ def wait_for_config_done(base_url, token):
                 return True
             if status == "error":
                 return False
-        except Exception:
-            pass
+        except (requests.RequestException, TypeError, AttributeError, KeyError):
+            continue
     return False
 
 
@@ -460,7 +458,7 @@ def setup_ssh_via_telnet(ip, username, password):
                 time.sleep(wait)
                 try:
                     return tn.read_very_eager().decode("ascii", errors="replace")
-                except Exception:
+                except (EOFError, OSError, ValueError):
                     return ""
 
             cmd("rm -f /etc/dropbear/dropbear_rsa_host_key", 1)
@@ -482,7 +480,7 @@ def setup_ssh_via_telnet(ip, username, password):
                 return True
             print("  [!] Dropbear may not have started")
             return False
-        except Exception as e:
+        except (OSError, EOFError, ValueError, TimeoutError) as e:
             print(f"  [!] telnetlib failed: {e}, thử socket...")
     except ImportError:
         pass
@@ -522,6 +520,7 @@ def _setup_ssh_via_socket(ip: str, username: str, password: str) -> bool:
             time.sleep(0.05)
         return False
 
+    sock = None
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(15)
@@ -587,12 +586,11 @@ def _setup_ssh_via_socket(ip: str, username: str, password: str) -> bool:
             return True
         print("  [!] Chưa chắc dropbear đã mở — thử: telnet vào và chạy dropbear -p 22")
         return False
-    except Exception as e:
+    except OSError as e:
         print(f"  [!] Telnet socket error: {e}")
-        try:
-            sock.close()
-        except Exception:
-            pass
+        if sock is not None:
+            with contextlib.suppress(OSError):
+                sock.close()
         return False
 
 
@@ -690,7 +688,7 @@ def main():
 
     # --- Step 5: Upload config ---
     print("\n[5/7] Uploading modified config...")
-    status, resp = upload_config(config_cgi, token, new_config)
+    status, _resp = upload_config(config_cgi, token, new_config)
     print(f"  Upload HTTP {status}")
 
     print("  Waiting for config to apply...")
@@ -700,10 +698,8 @@ def main():
 
     # --- Step 6: Reboot ---
     print("\n[6/7] Rebooting router...")
-    try:
+    with contextlib.suppress(requests.RequestException):
         api_call(base_url, "MGMT.reboot", token=token)
-    except Exception:
-        pass
     print("  Reboot command sent. Waiting 90 seconds...")
 
     for i in range(90, 0, -1):
