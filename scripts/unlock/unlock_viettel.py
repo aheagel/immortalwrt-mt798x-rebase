@@ -13,17 +13,17 @@ Yêu cầu:
     pip3 install requests
 """
 
+import argparse
 import base64
+import gzip
 import hashlib
 import hmac
-import gzip
-import tarfile
 import io
-import sys
-import time
 import socket
-import argparse
 import subprocess
+import sys
+import tarfile
+import time
 
 try:
     import requests
@@ -500,7 +500,7 @@ def _setup_ssh_via_socket(ip: str, username: str, password: str) -> bool:
             chunk = sock.recv(8192)
             if chunk:
                 buf.extend(_telnet_strip_iac(chunk))
-        except (socket.timeout, OSError, BlockingIOError):
+        except (TimeoutError, OSError, BlockingIOError):
             pass
 
     def wait_for(sub: bytes) -> bool:
