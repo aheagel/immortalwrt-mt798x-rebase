@@ -8,7 +8,7 @@
 
 set -e
 
-DEFCONFIG="${1:-defconfig/viettel-only.config}"
+DEFCONFIG="${1:-defconfig/viettel_eng.config}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
