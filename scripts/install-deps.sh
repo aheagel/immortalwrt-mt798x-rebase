@@ -10,6 +10,15 @@
 
 set -euo pipefail
 
+if [[ "$(uname -s)" == "Darwin" ]]; then
+  cat <<'EOF'
+macOS không hỗ trợ cài dependency build OpenWrt trực tiếp qua apt-get.
+Hãy build bằng container:
+  bash scripts/build-viettel-macos.sh
+EOF
+  exit 0
+fi
+
 APT_GET=(apt-get)
 if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
   APT_GET=(sudo apt-get)

@@ -88,7 +88,9 @@ Mỗi bản release gồm: `sysupgrade.itb`, `initramfs-recovery.itb`, `bl31-ubo
 
 Build firmware đầy đủ tính năng từ branch **`main`**.
 
-Yêu cầu: Ubuntu/Debian (hoặc tương đương), đủ RAM/disk cho OpenWrt build.
+Yêu cầu:
+- **Linux (Ubuntu/Debian hoặc tương đương):** đủ RAM/disk cho OpenWrt build.
+- **macOS (Apple Silicon M4/M-series):** dùng Docker/Colima để build trong container Linux.
 
 ```bash
 git clone https://github.com/quytttb/immortalwrt-mt798x-rebase.git
@@ -106,6 +108,21 @@ bash scripts/install-deps.sh
 
 ```bash
 bash scripts/build-viettel.sh
+```
+
+### Build trên macOS (M4/M-series)
+
+1. Cài Docker Desktop (hoặc Colima + Docker CLI), đảm bảo `docker` chạy được.
+2. Chạy build wrapper cho macOS:
+
+```bash
+bash scripts/build-viettel-macos.sh
+```
+
+Tuỳ chọn defconfig:
+
+```bash
+bash scripts/build-viettel-macos.sh defconfig/viettel_eng.config
 ```
 
 Script này làm toàn bộ: feeds, clone Aurora, copy bản dịch, defconfig, `make download`, `make`, và copy firmware ra thư mục `dist/`. Kết quả giống hệt bản từ GitHub Actions.
@@ -165,4 +182,3 @@ Tóm tắt nhanh:
 - Bug / góp ý: mở Issue trên fork hoặc comment PR upstream (#50 / #51).
 - Patch upstream: tạo nhánh mới từ `origin/25.12` → PR vào `chasey-dev:25.12`, mỗi PR một thiết bị.
 - Tính năng fork (bndstrg, v.v.): chỉ trên `main`.
-

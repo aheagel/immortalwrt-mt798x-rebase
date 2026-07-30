@@ -12,6 +12,24 @@ DEFCONFIG="${1:-defconfig/viettel_eng.config}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$REPO_ROOT"
 
+detect_jobs() {
+    if command -v nproc >/dev/null 2>&1; then
+        nproc
+        return
+    fi
+    if command -v getconf >/dev/null 2>&1; then
+        getconf _NPROCESSORS_ONLN
+        return
+    fi
+    if command -v sysctl >/dev/null 2>&1; then
+        sysctl -n hw.logicalcpu
+        return
+    fi
+    echo 1
+}
+
+JOBS="$(detect_jobs)"
+
 # Bước 1–4: chuẩn bị (feeds, Aurora, bản dịch, defconfig)
 bash scripts/prepare-build.sh "$DEFCONFIG"
 
@@ -21,7 +39,7 @@ make download -j8 || make download -j1 V=s
 
 echo ""
 echo "=== Bước 6: Build firmware ==="
-make -j"$(nproc)" V=s || {
+make -j"${JOBS}" V=s || {
     echo "Parallel build failed, retrying single-thread..."
     make -j1 V=s
 }
