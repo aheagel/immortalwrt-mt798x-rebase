@@ -2,7 +2,7 @@
 # Enable band steering in mt_wifi profile on Viettel DBDC boards.
 
 case "$(cat /tmp/sysinfo/board_name 2>/dev/null)" in
-viettel,nr3053|viettel,vht-32x6) ;;
+viettel,nr3053|viettel,32x6) ;;
 *) exit 0 ;;
 esac
 

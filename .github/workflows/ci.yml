@@ -39,3 +39,21 @@ jobs:
           grep -q "viettel_32x6" defconfig/viettel-only.config
           ! grep -q "DEVICE_xiaomi" defconfig/viettel-only.config
           echo "Viettel-only defconfig OK (NR3053 + 32X6)."
+
+      - name: Verify viettel_eng mtwifi roaming/steering flags
+        run: |
+          for k in \
+            CONFIG_PACKAGE_kmod-mt_wifi \
+            CONFIG_PACKAGE_bndstrg \
+            CONFIG_PACKAGE_luci-app-mtwifi-cfg \
+            CONFIG_MTK_DOT11K_RRM_SUPPORT \
+            CONFIG_MTK_DOT11R_FT_SUPPORT \
+            CONFIG_MTK_WNM_SUPPORT \
+            CONFIG_MTK_BAND_STEERING
+          do
+            grep -q "^${k}=y" defconfig/viettel_eng.config || {
+              echo "::error::Missing required flag in viettel_eng.config: ${k}=y" >&2
+              exit 1
+            }
+          done
+          echo "viettel_eng.config roaming/steering flags OK."
