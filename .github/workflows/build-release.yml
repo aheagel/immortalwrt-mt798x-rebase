@@ -83,7 +83,7 @@ jobs:
             openwrt-dl-filogic-ubuntu2404-${{ hashFiles('feeds.conf.default') }}-v1-
 
       - name: Build firmware and collect artifacts
-        run: bash scripts/build-viettel.sh defconfig/viettel-only.config
+        run: bash scripts/build-viettel.sh defconfig/viettel_eng.config
 
       - name: Verify artifacts exist
         run: test "$(ls -1 dist/ | wc -l)" -ge 1
